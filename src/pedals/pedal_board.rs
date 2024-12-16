@@ -266,9 +266,15 @@ mod test_pedal_board {
         board.insert_pedal("Tone Stack", 0);
         board.insert_pedal("Noise Gate", 0);
         assert_eq!(board.num_pedals(), 2);
-        println!(
-            "board: {}",
-            serde_json::to_string_pretty(&board.as_json(1)).unwrap()
-        );
+    }
+    #[test]
+    fn can_build_all_types() {
+        let mut board = PedalBoard::new(1);
+        if let Some(btypes) = PedalBoard::get_pedal_types().as_object() {
+            for (key, _value) in btypes {
+                board.insert_pedal(&key, 0);
+            }
+            assert_eq!(board.num_pedals(), btypes.len());
+        }
     }
 }
