@@ -1,11 +1,19 @@
+/// The alsa-device encapsulates the i/o setup for an full duplex stereo low latency audio
+/// stream .  To use the AlsaDevice, you ::new() one giving the names of the input and output
+/// devices.  The device will that expect to have its process_a_frame called repeatedly.  This 
+/// will take a &mut Callback as an argument.  Any struct that implements the Callback trace will then
+/// have their call function implementation called with the input and output buffers for the 
+/// alsa device (in f32 format).  Very much like the jack callback function.
 use std::fmt;
-
 use alsa::pcm::*;
 use alsa::{Direction, ValueOr};
 use log::{error, info};
-use pedal_board::PedalBoard;
 
 use crate::box_error::BoxError;
+
+pub trait Callback {
+    fn call(&mut self, in_a: &[f32], in_b: &[f32], out_a: &mut [f32], out_b: &mut [f32]);
+}
 
 
 type SF = i16;
@@ -55,7 +63,6 @@ impl Iterator for OutputBuffer {
 pub struct AlsaDevice {
     in_dev: PCM,
     out_dev: PCM,
-    boards: [PedalBoard; 2],
     out_buf: OutputBuffer,
 }
 
@@ -64,29 +71,26 @@ impl fmt::Display for AlsaDevice {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "in_dev: {:?}, out_dev: {:?}, boards: {}, {}",
+            "in_dev: {:?}, out_dev: {:?}",
             self.in_dev.state(), 
             self.out_dev.state(),
-            &self.boards[0].as_json(0),
-            &self.boards[1].as_json(1),
         )
     }
 }
 
 impl AlsaDevice{
     // Create a new full duplex alsa device
-    pub fn new(boards: [PedalBoard; 2], input: &str, output: &str) -> Result<AlsaDevice, BoxError> {
+    pub fn new(input: &str, output: &str) -> Result<AlsaDevice, BoxError> {
         let device = AlsaDevice {
             in_dev: open_record_dev(input)?,
             out_dev: open_playback_dev(output)?,
-            boards: boards,
             out_buf: OutputBuffer::new(),
         };
         device.in_dev.start()?;
         Ok(device)
     }
     // process a frame of input and write it to the output
-    pub fn process_a_frame(&mut self) -> Result<usize, BoxError> {
+    pub fn process_a_frame(&mut self, cb: &mut dyn Callback) -> Result<usize, BoxError> {
         let mut io_out = self.out_dev.io_i16()?;
         let io_in = self.in_dev.io_i16()?;
         let mut in_buf = [0; FRAME_SIZE * CHANNELS as usize];
@@ -120,9 +124,8 @@ impl AlsaDevice{
             }
         }
 
-        // apply the board to the left channel
-        self.boards[0].process(&in_a, &mut out_a);
-        self.boards[1].process(&in_b, &mut out_b);
+        // Callback function that implements Callback trait.  
+        cb.call(&in_a, &in_b, &mut out_a, &mut out_b);
 
         // Here we write until the outdev does not have space for a frame
         let mut avail = FRAME_SIZE;  // set avail on the first time so it will at least try
