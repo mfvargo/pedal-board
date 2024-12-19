@@ -1,8 +1,11 @@
+use std::fs::{self};
+
 /// Example program to run two channels of audio from an alsa device into two pedal boards
 /// Alsa input and output device names can be passed in on the command line.
 use alsa_device::AlsaDevice;
+use box_error::BoxError;
 use clap::{Parser, command};
-use log::{error, info};
+use log::{debug, error, info};
 use pedal_board::PedalBoard;
 
 mod box_error;
@@ -28,19 +31,17 @@ struct BoardSet {
 }
 
 impl BoardSet {
-    fn new() -> BoardSet {
+    fn new() -> Result<BoardSet, BoxError> {
         let mut right_board = PedalBoard::new(0_);
-        right_board.insert_pedal("Champ", 0);
-        right_board.insert_pedal("Sigma Reverb", 0);
-        right_board.insert_pedal("Delay", 0);
+        right_board.load_from_json(&fs::read_to_string("examples/alsa_io/guitar.json")?);
+        debug!("right_board: {}", right_board.as_json(3));
     
         let mut left_board = PedalBoard::new(0_);
-        left_board.insert_pedal("Sigma Reverb", 0);
-        left_board.insert_pedal("Noise Gate", 0);
-        BoardSet {
+        left_board.load_from_json(&fs::read_to_string("examples/alsa_io/vocals.json")?);
+        Ok(BoardSet {
             left_board: left_board,
             right_board: right_board,
-        }
+        })
     }
 }
 
@@ -68,13 +69,15 @@ impl Callback for BoardSet {
 fn main() -> Result<(), box_error::BoxError> {
     // Turn on the logger
     env_logger::init();
+    info!("running alsa test example");
+
+
     let args = Args::parse();
 
     // Create a board set that implements the callback trait.  The alsa
     // thread will call that function with input/output buffers to process
-    let mut bset = BoardSet::new();
+    let mut bset = BoardSet::new()?;
 
-    info!("running alsa test example");
     let res = AlsaDevice::new(
         &args.in_dev, 
         &args.out_dev);
